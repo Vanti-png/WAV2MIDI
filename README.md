@@ -1,17 +1,18 @@
 # 🎼 WAV2MIDI
 
 WAV / MP3 ses dosyalarını MIDI'ye dönüştüren, tamamen **Rust** ile yazılmış masaüstü uygulaması.
-Yapay zekâ modeli ya da harici program gerektirmez; analiz tamamen sinyal işleme ile, yerelde yapılır.
+Analiz tamamen yerelde yapılır: Spotify'ın açık kaynak **basic-pitch** sinir ağı exe'nin içine gömülüdür, internet bağlantısı ya da harici program gerektirmez.
 
 ![WAV2MIDI ekran görüntüsü](docs/screenshot.png)
 
 ## Özellikler
 
 - **Desteklenen formatlar:** WAV, MP3, FLAC, OGG/Vorbis, M4A/AAC
-- **İki analiz modu**
-  - **Polifonik**: piyano, gitar, akorlar (aynı anda en fazla 10 nota)
-  - **Monofonik**: vokal, ıslık, flüt, keman gibi tek sesli kayıtlar
-- **Anlık ayar**: hassasiyet, minimum nota süresi, boşluk birleştirme ve atak algılama kaydırıcıları sonucu yeniden analiz gerektirmeden anında günceller
+- **Üç analiz modu**
+  - **Yapay zekâ (önerilen)**: Spotify basic-pitch modeli; çok sesli, enstrümandan bağımsız, şarkılarda en iyi sonuç
+  - **Klasik monofonik**: vokal, ıslık, flüt, keman gibi tek sesli kayıtlar (YIN)
+  - **Klasik polifonik**: temiz piyano / gitar kayıtları (harmonik toplama)
+- **Anlık ayar**: hassasiyet, minimum nota süresi, eşzamanlı nota sınırı (sadeleştirme) ve atak algılama sonucu yeniden analiz gerektirmeden anında günceller
 - **Piyano rulosu**: dalga formu, zaman cetveli, yakınlaştırma/kaydırma, nota üzerine gelince bilgi
 - **Dinleme**: orijinal ses, sentezlenmiş MIDI veya ikisi birlikte (hizalamayı kulakla kontrol etmek için)
 - **MIDI çıktısı**: tempo (BPM), kuantalama (1/4 – 1/32), 128 General MIDI enstrümanı, sabit/dinamik velocity
@@ -22,7 +23,7 @@ Yapay zekâ modeli ya da harici program gerektirmez; analiz tamamen sinyal işle
 
 1. [Releases](../../releases) sayfasından `wav2midi.exe` dosyasını indirip çalıştırın.
 2. Bir ses dosyasını pencereye sürükleyin veya **Dosya Aç** ile seçin. Dosya otomatik analiz edilir.
-3. Kayda uygun modu seçin (*Polifonik* / *Monofonik*) ve gerekirse **Yeniden analiz et**'e basın.
+3. Varsayılan **Yapay zekâ** modu çoğu kayıt için en iyisidir. Tek sesli kayıtlarda *Klasik monofonik* de denenebilir.
 4. **Nota algılama** kaydırıcılarıyla sonucu ince ayarlayın, **▶ Birlikte** ile dinleyerek kontrol edin.
 5. **MIDI Kaydet** ile `.mid` dosyasını kaydedin.
 
@@ -38,8 +39,9 @@ Yapay zekâ modeli ya da harici program gerektirmez; analiz tamamen sinyal işle
 
 ### İyi sonuç için ipuçları
 
-- En iyi sonuç **tek enstrümanlı, davulsuz** kayıtlarda alınır. Tam bir şarkı miksi (davul + bas + vokal) dönüştürülebilir ama sonuç karışık olur.
-- Vokal ve solo melodiler için **Monofonik** mod çok daha temiz sonuç verir.
+- Tam şarkılarda (davul + gitar + bas) **Yapay zekâ** modunu kullanın. Distorsiyonlu gitar power chord'ları doğal olarak 2–3 nota (kök + kuint + oktav) olarak çıkar.
+- Sonuç kalabalıksa **Eşzamanlı nota** kaydırıcısıyla aynı anda çalan nota sayısını 1–4 arasına indirin; en zayıf notalar atılır.
+- En temiz sonuç yine de tek enstrümanlı, davulsuz kayıtlarda alınır.
 - Gereksiz kısa notalar varsa **hassasiyeti düşürün** veya **min. nota süresini** artırın.
 - Bas notaları ya da yavaş parçalar için polifonik modda **Pencere: Hassas** seçeneğini deneyin; hızlı pasajlar için **Hızlı**'yı kullanın.
 
@@ -48,9 +50,11 @@ Yapay zekâ modeli ya da harici program gerektirmez; analiz tamamen sinyal işle
 | Aşama | Yöntem |
 |---|---|
 | Ses çözme | [symphonia](https://github.com/pdeljanov/Symphonia) — tümü Rust, mono'ya indirgeme |
+| Yapay zekâ modu | Spotify **basic-pitch** (ICASSP 2022) ONNX modeli, saf Rust ONNX çalıştırıcısı [tract](https://github.com/sonos/tract) ile; 22.05 kHz'e pencereli-sinc yeniden örnekleme, 2 sn'lik örtüşen pencereler, basic-pitch'in nota oluşturma algoritmasının (başlangıç tepe seçimi + "melodia" izleme) Rust karşılığı |
 | Monofonik perde | **YIN** algoritması (FFT tabanlı fark fonksiyonu, parabolik ara değerleme), medyan filtre, histerezisli nota bölütleme |
 | Polifonik perde | Klapuri (2006) tarzı **harmonik genlik toplama**: Hann pencereli STFT → spektral beyazlatma → ağırlıklı harmonik salience → yinelemeli tahmin ve *spektral düzgünlük* ile harmonik çıkarma |
 | Atak algılama | Kısa pencereli spektral akı (spectral flux) + tepe seçimi; nota başlangıçları ataklara hizalanır, tekrar çalınan notalar bölünür |
+| Sadeleştirme | Eşzamanlı nota sınırı: velocity × √süre skoruna göre en güçlü notalar tutulur |
 | MIDI | Bağımlılıksız SMF format 1 yazıcı (480 PPQ, tempo + ölçü izi, nota izi) |
 | Arayüz | [egui / eframe](https://github.com/emilk/egui), dosya diyaloğu için [rfd](https://github.com/PolyMeilex/rfd), çalma için [rodio](https://github.com/RustAudio/rodio) |
 
@@ -79,7 +83,9 @@ cargo test --release
 src/
   lib.rs            çekirdek kütüphane
   audio.rs          ses çözme (symphonia)
+  resample.rs       pencereli sinc yeniden örnekleyici
   analysis/
+    ai.rs           basic-pitch modeli (tract) + nota oluşturma
     mono.rs         YIN + monofonik nota takibi
     poly.rs         çoklu perde tahmini + polifonik nota takibi
     util.rs         yardımcılar (pencere, yüzdelik, tepe seçimi)
@@ -90,15 +96,17 @@ src/
   piano_roll.rs     piyano rulosu bileşeni
   player.rs         ses çalma
   gm.rs             General MIDI enstrüman listesi
+assets/basic_pitch/ gömülü model (nmp.onnx) ve lisansı
+examples/diag.rs    bir dosyayı tüm modlarla analiz edip istatistik yazdırır
 tests/pipeline.rs   uçtan uca testler
 ```
 
 ## Sınırlamalar
 
-- Polifonik transkripsiyon zor bir problemdir: aynı anda çalan oktav notaları, yoğun miksler ve davullar hatalı/eksik notalara yol açabilir.
+- Tam şarkı mikslerinde yapay zekâ modu da tüm enstrümanları tek bir MIDI izine yazar; davullar ara sıra sahte notalar üretebilir.
 - Tempo otomatik algılanmaz; MIDI dosyası seçtiğiniz BPM ile yazılır (notaların gerçek zamanlaması her durumda korunur).
 - Pitch bend / perde kayması MIDI'ye aktarılmaz; notalar en yakın yarım tona yuvarlanır.
 
 ## Lisans
 
-[MIT](LICENSE)
+[MIT](LICENSE). Gömülü basic-pitch modeli Spotify AB'ye aittir ve [Apache License 2.0](assets/basic_pitch/LICENSE) ile lisanslıdır (bkz. [NOTICE](assets/basic_pitch/NOTICE.md)).

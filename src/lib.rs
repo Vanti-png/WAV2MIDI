@@ -9,6 +9,7 @@ pub mod analysis;
 pub mod audio;
 pub mod midi;
 pub mod notes;
+pub mod resample;
 pub mod synth;
 
 pub use analysis::{analyze, Analysis, AnalysisSettings, Mode, PolyWindow, TrackSettings};

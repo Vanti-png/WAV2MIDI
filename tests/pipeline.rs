@@ -63,8 +63,7 @@ fn describe(notes: &[Note]) -> String {
         .join(" ")
 }
 
-#[test]
-fn mono_melody_is_transcribed() {
+fn assert_melody(mode: Mode, label: &str) {
     let sr = 44100;
     let melody = [60u8, 62, 64, 65, 67, 69, 71, 72];
     let (dur, gap) = (0.30, 0.05);
@@ -73,18 +72,18 @@ fn mono_melody_is_transcribed() {
     for (i, &p) in melody.iter().enumerate() {
         add_tone(&mut buf, sr, p, 0.1 + i as f64 * (dur + gap), dur, 0.3, 6, 1.0);
     }
-    let path = write_wav("mono", &buf, sr, 1);
+    let path = write_wav(label, &buf, sr, 1);
     let audio = load_audio(&path, &|_| {}).unwrap();
     let _ = std::fs::remove_file(&path);
     assert_eq!(audio.sample_rate, sr);
 
     let settings = AnalysisSettings {
-        mode: Mode::Mono,
+        mode,
         ..Default::default()
     };
-    let analysis = analyze(&audio, &settings, &|_| {});
+    let analysis = analyze(&audio, &settings, &|_| {}).unwrap();
     let notes = analysis.track(&TrackSettings::default());
-    println!("mono: {}", describe(&notes));
+    println!("{label}: {}", describe(&notes));
 
     let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, melody, "notalar: {}", describe(&notes));
@@ -95,8 +94,7 @@ fn mono_melody_is_transcribed() {
     }
 }
 
-#[test]
-fn poly_chords_are_transcribed() {
+fn assert_chords(mode: Mode, label: &str) {
     let sr = 44100;
     let chords: [&[u8]; 4] = [&[60, 64, 67], &[65, 69, 72], &[55, 62, 67, 71], &[48, 60, 64]];
     let (dur, gap) = (0.9, 0.1);
@@ -107,15 +105,14 @@ fn poly_chords_are_transcribed() {
             add_tone(&mut buf, sr, p, 0.1 + i as f64 * (dur + gap), dur, 0.15, 25, 1.5);
         }
     }
-    let path = write_wav("poly", &buf, sr, 1);
+    let path = write_wav(label, &buf, sr, 1);
     let audio = load_audio(&path, &|_| {}).unwrap();
     let _ = std::fs::remove_file(&path);
 
-    let settings = AnalysisSettings::default();
-    assert_eq!(settings.mode, Mode::Poly);
-    let analysis = analyze(&audio, &settings, &|_| {});
+    let settings = AnalysisSettings { mode, ..Default::default() };
+    let analysis = analyze(&audio, &settings, &|_| {}).unwrap();
     let notes = analysis.track(&TrackSettings::default());
-    println!("poly: {}", describe(&notes));
+    println!("{label}: {}", describe(&notes));
     let expected_total: usize = chords.iter().map(|c| c.len()).sum();
     assert_eq!(notes.len(), expected_total, "fazladan/eksik nota: {}", describe(&notes));
 
@@ -137,6 +134,26 @@ fn poly_chords_are_transcribed() {
             assert!((n.start - start).abs() < 0.06, "akor {i} nota {} başlangıç {}", n.pitch, n.start);
         }
     }
+}
+
+#[test]
+fn mono_melody_is_transcribed() {
+    assert_melody(Mode::Mono, "mono");
+}
+
+#[test]
+fn ai_melody_is_transcribed() {
+    assert_melody(Mode::Ai, "ai-melodi");
+}
+
+#[test]
+fn poly_chords_are_transcribed() {
+    assert_chords(Mode::Poly, "poly");
+}
+
+#[test]
+fn ai_chords_are_transcribed() {
+    assert_chords(Mode::Ai, "ai-akor");
 }
 
 #[test]

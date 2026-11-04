@@ -1,6 +1,6 @@
 [package]
 name = "wav2midi"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "WAV / MP3 ses dosyalarini MIDI'ye donusturen masaustu uygulamasi"
 license = "MIT"
@@ -22,6 +22,7 @@ rustfft = "6.2"
 rayon = "1.10"
 rodio = { version = "0.20", default-features = false }
 anyhow = "1"
+tract-onnx = "0.23"
 
 [dev-dependencies]
 hound = "3.5"

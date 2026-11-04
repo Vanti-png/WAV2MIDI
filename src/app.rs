@@ -28,7 +28,7 @@ enum JobMsg {
     Loaded(Result<Loaded, String>),
     Analyzed {
         settings: AnalysisSettings,
-        result: Analysis,
+        result: Result<Analysis, String>,
         secs: f64,
     },
 }
@@ -61,7 +61,8 @@ pub struct App {
     notes_version: u64,
     settings: AnalysisSettings,
     track: TrackSettings,
-    tracked_with: Option<TrackSettings>,
+    /// Son nota takibinin yapıldığı (ayarlar, nota aralığı)
+    tracked_with: Option<(TrackSettings, u8, u8)>,
     midi: MidiOptions,
     use_fixed_velocity: bool,
     fixed_velocity: u8,
@@ -149,7 +150,8 @@ impl App {
             let t = Instant::now();
             let result = wav2midi::analyze(&audio, &settings, &|f| {
                 p2.store(f.to_bits(), Ordering::Relaxed)
-            });
+            })
+            .map_err(|e| format!("{e:#}"));
             let _ = tx.send(JobMsg::Analyzed {
                 settings,
                 result,
@@ -158,6 +160,7 @@ impl App {
             ctx2.request_repaint();
         });
         let mode = match self.settings.mode {
+            Mode::Ai => "yapay zekâ",
             Mode::Mono => "monofonik",
             Mode::Poly => "polifonik",
         };
@@ -206,8 +209,11 @@ impl App {
             }
             JobMsg::Loaded(Err(e)) => self.set_status(StatusKind::Error, e),
             JobMsg::Analyzed {
+                result: Err(e), ..
+            } => self.set_status(StatusKind::Error, format!("Analiz başarısız: {e}")),
+            JobMsg::Analyzed {
                 settings,
-                result,
+                result: Ok(result),
                 secs,
             } => {
                 self.analysis = Some((settings, result));
@@ -225,12 +231,13 @@ impl App {
     /// Nota takibi ayarları değiştiyse notaları yeniden hesapla (anlık).
     fn retrack(&mut self) {
         let Some((_, analysis)) = &self.analysis else { return };
-        if self.tracked_with.as_ref() == Some(&self.track) {
+        let key = (self.track.clone(), self.settings.min_note, self.settings.max_note);
+        if self.tracked_with.as_ref() == Some(&key) {
             return;
         }
-        self.notes = analysis.track(&self.track);
+        self.notes = analysis.track_in_range(&self.track, key.1, key.2);
         self.notes_version += 1;
-        self.tracked_with = Some(self.track.clone());
+        self.tracked_with = Some(key);
     }
 
     fn set_status(&mut self, kind: StatusKind, text: impl Into<String>) {
@@ -485,8 +492,10 @@ impl App {
 
     fn analysis_section(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         section_title(ui, "1", "Analiz");
-        ui.radio_value(&mut self.settings.mode, Mode::Poly, "Polifonik — piyano, gitar, akorlar");
-        ui.radio_value(&mut self.settings.mode, Mode::Mono, "Monofonik — vokal, melodi, solo enstrüman");
+        ui.radio_value(&mut self.settings.mode, Mode::Ai, RichText::new("Yapay zekâ — her tür kayıt (önerilen)").strong())
+            .on_hover_text("Spotify basic-pitch sinir ağı. Çok sesli, enstrümandan bağımsız; şarkılarda en iyi sonuç.");
+        ui.radio_value(&mut self.settings.mode, Mode::Mono, "Klasik monofonik — vokal, solo melodi");
+        ui.radio_value(&mut self.settings.mode, Mode::Poly, "Klasik polifonik — temiz piyano/gitar");
         ui.add_space(4.0);
 
         egui::Grid::new("analysis_grid")
@@ -522,7 +531,7 @@ impl App {
         let stale = self
             .analysis
             .as_ref()
-            .is_some_and(|(s, _)| s != &self.settings);
+            .is_some_and(|(s, _)| self.settings.requires_reanalysis(s));
         let label = if self.analysis.is_none() {
             "🎵  Dönüştür"
         } else if stale {
@@ -560,9 +569,24 @@ impl App {
                 ui.label("Min. nota süresi");
                 ui.add(egui::Slider::new(&mut self.track.min_note_ms, 10.0..=500.0).suffix(" ms").integer());
                 ui.end_row();
-                ui.label("Boşluk birleştir");
-                ui.add(egui::Slider::new(&mut self.track.merge_gap_ms, 0.0..=250.0).suffix(" ms").integer())
-                    .on_hover_text("Aynı perdedeki bu süreden kısa kesintiler tek nota sayılır");
+                if self.settings.mode != Mode::Ai {
+                    ui.label("Boşluk birleştir");
+                    ui.add(egui::Slider::new(&mut self.track.merge_gap_ms, 0.0..=250.0).suffix(" ms").integer())
+                        .on_hover_text("Aynı perdedeki bu süreden kısa kesintiler tek nota sayılır");
+                    ui.end_row();
+                }
+                ui.label("Eşzamanlı nota");
+                let mut limit = if self.track.max_simultaneous == 0 { 13 } else { self.track.max_simultaneous };
+                if ui
+                    .add(
+                        egui::Slider::new(&mut limit, 1..=13)
+                            .custom_formatter(|v, _| if v >= 13.0 { "Sınırsız".into() } else { format!("en fazla {v:.0}") }),
+                    )
+                    .on_hover_text("Sadeleştirme: aynı anda çalan nota sayısını sınırlar, en zayıf notaları atar. Şarkılarda 3–4 deneyin.")
+                    .changed()
+                {
+                    self.track.max_simultaneous = if limit >= 13 { 0 } else { limit };
+                }
                 ui.end_row();
             });
         ui.checkbox(&mut self.track.split_onsets, "Tekrar çalınan notaları ayır (atak algılama)");
@@ -876,8 +900,8 @@ fn parse_note(s: &str) -> Option<u8> {
 fn tips(ui: &mut egui::Ui) {
     ui.label(RichText::new("💡 İpuçları").strong());
     for t in [
-        "En iyi sonuç tek enstrümanlı, davulsuz kayıtlarda alınır.",
-        "Vokal, ıslık, flüt gibi tek sesli kayıtlar için Monofonik modu seçin.",
+        "Şarkılarda Yapay zekâ modunu kullanın; sonuç kalabalıksa Eşzamanlı nota sınırını 2–4'e indirin.",
+        "Distorsiyonlu gitar akorları (power chord) doğal olarak 2–3 nota olarak çıkar.",
         "Gereksiz kısa notalar çoksa hassasiyeti düşürün veya min. süreyi artırın.",
         "Rulo üzerinde tıklayarak çalma konumunu seçin, sürükleyerek gezinin.",
     ] {
