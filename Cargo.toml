@@ -1,0 +1,39 @@
+[package]
+name = "wav2midi"
+version = "0.1.0"
+edition = "2021"
+description = "WAV / MP3 ses dosyalarini MIDI'ye donusturen masaustu uygulamasi"
+license = "MIT"
+repository = "https://github.com/Vanti-png/WAV2MIDI"
+
+[lib]
+name = "wav2midi"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wav2midi"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.31"
+rfd = "0.15"
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
+rustfft = "6.2"
+rayon = "1.10"
+rodio = { version = "0.20", default-features = false }
+anyhow = "1"
+
+[dev-dependencies]
+hound = "3.5"
+midly = "0.5"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
